@@ -1,0 +1,17 @@
+2026.04.24
+
+Standalone distribution of factotum with dp9ik support.
+
+Based on plan9port commit: 7f03429239e19bdab0be36f39a24ce24054ae12c
+Date: 2026-04-24
+PR: https://github.com/9fans/plan9port/pull/786
+
+Changes:
+- Added dp9ik (modern 9front) authentication protocol
+- Updated p9any to negotiate dp9ik when available
+- Imported AuthPAK, Ed448, SPAKE2-EE cryptography
+- Added ChaCha20-Poly1305, SHA-512, HKDF to libsec
+- Extended libmp with constant-time operations
+- Comprehensive test coverage
+
+See README.md for details.

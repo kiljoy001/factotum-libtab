@@ -1,0 +1,46 @@
+# Compiled binaries
+factotum
+passwd
+netkey
+
+# Test executables
+src/libauthsrv/dp9iktest
+src/cmd/auth/factotum/livetest
+
+# Object files
+*.o
+*.a
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# Editor files
+*~
+*.swp
+*.swo
+.*.sw?
+.vscode/
+.idea/
+*.sublime-*
+
+# OS files
+.DS_Store
+Thumbs.db
+*.log
+
+# Build artifacts
+*.tmp
+*.bak
+*.orig
+
+# Generated files
+.depend
+tags
+TAGS
+
+# Test output
+test_*.out
+*.test
