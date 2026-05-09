@@ -1,7 +1,7 @@
 # Compiled binaries
-factotum
-passwd
-netkey
+/factotum
+/passwd
+/netkey
 
 # Test executables
 src/libauthsrv/dp9iktest
