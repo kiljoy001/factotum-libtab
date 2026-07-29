@@ -1,6 +1,6 @@
 enum
 {
-	MaxRpc = 2048,	/* max size of any protocol message */
+	MaxRpc = 16384,	/* max size of any protocol message */
 
 	/* keep in sync with rpc.c:/rpcname */
 	RpcUnknown = 0,		/* Rpc.op */

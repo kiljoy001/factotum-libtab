@@ -10,6 +10,9 @@ This package provides:
 - **factotum**: Authentication agent supporting p9sk1, dp9ik, and p9any negotiation
 - **passwd**: Password changing utility
 - **netkey**: Network key management utility
+- **Monocypher-backed signing**: Native libtab EdDSA+BLAKE2b signing support
+- **tpm9p proofs**: Factotum protocol for tpm9p/libtab user authorization proofs
+- **OAuth/OAuth2 token storage**: Factotum-managed bearer token retrieval
 
 All Plan 9 dependencies (lib9, libauth, libsec, etc.) are included and built statically.
 
@@ -86,6 +89,16 @@ echo "key proto=dp9ik dom=example.com user=glenda !password=secret" > /mnt/facto
 
 # Add a key that works for both protocols
 echo "key proto=p9any dom=example.com user=glenda !password=secret" > /mnt/factotum/ctl
+
+# Add a libtab-compatible Monocypher signing key.
+# !seed may be 32 bytes encoded as hex or padded base64url.
+echo "key proto=monocypher user=alice !seed=000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f" > /mnt/factotum/ctl
+
+# Add the same key for tpm9p policy proofs.
+echo "key proto=tpm9p authdom=rentonsoftworks.coin user=alice !seed=000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f" > /mnt/factotum/ctl
+
+# Store an OAuth2 access token in factotum.
+echo "key proto=oauth2 service=keycloak issuer=https://sso.example.com user=alice !access_token=ey..." > /mnt/factotum/ctl
 ```
 
 ### Querying keys
@@ -100,6 +113,15 @@ factotum -g "proto=dp9ik dom=example.com user=glenda !password?"
 
 ### Protocols supported
 
+- **monocypher**: Monocypher-backed signing. The first supported algorithm is
+  `libtab-eddsa-blake2b-v1`, which is Monocypher `crypto_eddsa_*`
+  over Edwards25519 with BLAKE2b. It is intentionally not RFC8032 Ed25519.
+- **tpm9p**: Creates current tpm9p authorization proof cells. The client writes
+  a server challenge and reads a libtab `signed:<body>:<sig>` cell for
+  `tpm9p-user-auth-v1`.
+- **oauth/oauth2**: Stores access tokens in factotum private attributes and
+  returns raw or `Bearer ...` tokens for clients that need an identity-layer
+  bridge.
 - **p9any**: Meta-protocol that negotiates dp9ik or p9sk1 automatically
 - **dp9ik**: Modern 9front authentication protocol
 - **p9sk1**: Classic Plan 9 shared-key authentication
@@ -110,6 +132,54 @@ factotum -g "proto=dp9ik dom=example.com user=glenda !password?"
 - **pass**: Plain password authentication
 - **rsa**: RSA public-key authentication
 - **wpapsk**: WPA-PSK authentication
+
+### Monocypher RPC examples
+
+The generic Monocypher protocol signs bytes and returns a raw 64-byte
+signature:
+
+```text
+start proto=monocypher role=sign user=alice
+write <message bytes>
+read
+```
+
+Use `role=sigcell` to receive the released libtab signed-cell format instead:
+
+```text
+signed:<base64url-body>:<base64url-signature>
+```
+
+Use `role=public` to read the 32-byte public key, and `role=verify` to verify a
+message/signature pair.
+
+### tpm9p RPC example
+
+```text
+start proto=tpm9p role=client authdom=rentonsoftworks.coin user=alice
+write <16+ byte challenge from tpm9p>
+read
+```
+
+The response is a libtab signed cell whose body is:
+
+```text
+tpm9p-user-auth-v1 NUL authdom NUL user NUL challenge
+```
+
+### OAuth/OAuth2 RPC examples
+
+```text
+start proto=oauth2 role=access service=keycloak user=alice
+read
+
+start proto=oauth2 role=bearer service=keycloak user=alice
+read
+```
+
+`role=access` returns the raw access token. `role=bearer` returns an HTTP
+Authorization header value. `role=refresh` returns `!refresh_token` only when
+that private attribute is present.
 
 ## Testing
 
@@ -165,6 +235,8 @@ This standalone distribution includes the dp9ik patches from commit `7f034292`:
 - Updated p9any to negotiate dp9ik when available
 - Imported AuthPAK, Ed448, SPAKE2-EE crypto from 9front
 - Added ChaCha20-Poly1305, SHA-512, HKDF, PBKDF2 to libsec
+- Added Monocypher as a libsec component for libtab/tpm9p signing protocols
+- Added `monocypher`, `tpm9p`, `oauth`, and `oauth2` factotum protocols
 - Extended libmp with constant-time field operations
 - Updated authsrv structures for form1 authentication
 - Added comprehensive test coverage

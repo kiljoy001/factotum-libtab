@@ -230,6 +230,11 @@ ulong	nfastrand(ulong);
 int	tsmemcmp(void*, void*, ulong);
 
 /*******************************************************/
+/* Monocypher */
+/*******************************************************/
+#include <monocypher.h>
+
+/*******************************************************/
 /* primes */
 /*******************************************************/
 void	genprime(mpint *p, int n, int accuracy); /* generate an n bit probable prime */

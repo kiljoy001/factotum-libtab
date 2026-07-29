@@ -82,7 +82,7 @@ LIBSEC_FILES = aes blowfish ccpoly chacha chachablock decodepem des des3CBC \
 	des3ECB desCBC desECB desmodes dsaalloc dsagen dsaprimes dsaprivtopub \
 	dsasign dsaverify egalloc egdecrypt egencrypt eggen egprivtopub egsign \
 	egverify fastrand genprime genrandom gensafeprime genstrongprime hmac hkdf \
-	md4 md5 md5block md5pickle nfastrand pbkdf2 poly1305 prng probably_prime \
+	md4 md5 md5block md5pickle monocypher nfastrand pbkdf2 poly1305 prng probably_prime \
 	rc4 readcert rsaalloc rsadecrypt rsaencrypt rsafill rsagen rsaprivtopub \
 	sha1 sha1block sha1pickle sha2_64 sha2block64 smallprimetest thumb tlshand \
 	tsmemcmp x509
@@ -178,7 +178,8 @@ libmux.a: $(LIBMUX_OBJS)
 
 # Commands
 FACTOTUM_DIR = src/cmd/auth/factotum
-FACTOTUM_FILES = apop.c chap.c dsa.c httpdigest.c p9any.c p9cr.c p9sk1.c pass.c rsa.c wep.c \
+FACTOTUM_FILES = apop.c chap.c dsa.c httpdigest.c monokey.c monocypherproto.c oauth.c \
+	p9any.c p9cr.c p9sk1.c pass.c rsa.c tpm9p.c wep.c \
 	attr.c confirm.c conv.c ctl.c fs.c key.c log.c main.c plan9.c pkcs1.c proto.c rpc.c secstore.c util.c xio.c
 FACTOTUM_OBJS = $(addprefix $(FACTOTUM_DIR)/, $(FACTOTUM_FILES:.c=.o))
 
@@ -191,6 +192,12 @@ passwd: src/cmd/auth/passwd.o $(LIBS)
 netkey: src/cmd/netkey.o $(LIBS)
 	$(CC) $(CFLAGS) -o $@ src/cmd/netkey.o $(LIB_GROUP) $(LDFLAGS)
 
+monocypher-test: src/libsec/port/monocyphertest.o libsec.a
+	$(CC) $(CFLAGS) -o $@ src/libsec/port/monocyphertest.o libsec.a
+
+check-mono: monocypher-test
+	./monocypher-test
+
 # Dependencies
 src/libauthsrv/authpak.o: src/libauthsrv/authpak.c \
 	src/libauthsrv/msqrt.mpc src/libauthsrv/decaf.mpc \
@@ -201,6 +208,6 @@ src/libauthsrv/authpak.o: src/libauthsrv/authpak.c \
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(LIBS) $(CMDS) $(LIB9_OBJS) $(LIBMP_OBJS) $(LIBSEC_OBJS) $(LIBAUTH_OBJS) $(LIBAUTHSRV_OBJS) $(LIBNDB_OBJS) $(LIBBIO_OBJS) $(LIB9P_OBJS) $(LIBTHREAD_OBJS) $(LIB9PCLIENT_OBJS) $(LIBIP_OBJS) $(LIBMUX_OBJS) $(FACTOTUM_OBJS) src/cmd/auth/passwd.o src/cmd/netkey.o
+	rm -f $(LIBS) $(CMDS) monocypher-test $(LIB9_OBJS) $(LIBMP_OBJS) $(LIBSEC_OBJS) src/libsec/port/monocyphertest.o $(LIBAUTH_OBJS) $(LIBAUTHSRV_OBJS) $(LIBNDB_OBJS) $(LIBBIO_OBJS) $(LIB9P_OBJS) $(LIBTHREAD_OBJS) $(LIB9PCLIENT_OBJS) $(LIBIP_OBJS) $(LIBMUX_OBJS) $(FACTOTUM_OBJS) src/cmd/auth/passwd.o src/cmd/netkey.o
 
-.PHONY: all clean
+.PHONY: all clean check-mono

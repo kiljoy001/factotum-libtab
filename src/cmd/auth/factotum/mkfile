@@ -6,11 +6,15 @@ PROTO=\
 	chap.$O\
 	dsa.$O\
 	httpdigest.$O\
+	monokey.$O\
+	monocypherproto.$O\
+	oauth.$O\
 	p9any.$O\
 	p9cr.$O\
 	p9sk1.$O\
 	pass.$O\
 	rsa.$O\
+	tpm9p.$O\
 	wep.$O\
 
 OFILES=\
@@ -31,7 +35,7 @@ OFILES=\
 	util.$O\
 	xio.$O\
 
-HFILES=dat.h
+HFILES=dat.h monokey.h
 
 <$PLAN9/src/mkone
 

@@ -7,6 +7,9 @@ extern Proto	cram;		/* apop.c */
 extern Proto	dsa;			/* dsa.c */
 extern Proto	httpdigest;	/* httpdigest.c */
 extern Proto	mschap;		/* chap.c */
+extern Proto	monocypher;	/* monocypherproto.c */
+extern Proto	oauth;		/* oauth.c */
+extern Proto	oauth2;		/* oauth.c */
 extern Proto	p9any;		/* p9any.c */
 extern Proto	dp9ik;		/* p9sk1.c */
 extern Proto	p9sk1;		/* p9sk1.c */
@@ -14,6 +17,7 @@ extern Proto	p9sk2;		/* p9sk2.c */
 extern Proto	p9cr;
 extern Proto	pass;			/* pass.c */
 extern Proto	rsa;			/* rsa.c */
+extern Proto	tpm9p;		/* tpm9p.c */
 extern Proto	vnc;			/* p9cr.c */
 
 Proto *prototab[] = {
@@ -23,6 +27,9 @@ Proto *prototab[] = {
 	&dsa,
 	&httpdigest,
 	&mschap,
+	&monocypher,
+	&oauth,
+	&oauth2,
 	&p9any,
 	&dp9ik,
 	&p9cr,
@@ -30,6 +37,7 @@ Proto *prototab[] = {
 	&p9sk2,
 	&pass,
 	&rsa,
+	&tpm9p,
 	&vnc,
 	nil
 };
