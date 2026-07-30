@@ -23,6 +23,7 @@ typedef struct Proto Proto;
 typedef struct Ring Ring;
 typedef struct Role Role;
 typedef struct Rpc Rpc;
+typedef struct TpmKeyInfo TpmKeyInfo;
 
 struct Rpc
 {
@@ -68,6 +69,15 @@ struct Key
 	Attr *privattr;		/* private attributes, like !password */
 	Proto *proto;		/* protocol owner of key */
 	void *priv;		/* protocol-specific storage */
+};
+
+struct TpmKeyInfo
+{
+	char	*name;
+	char	*handle;
+	char	*alg;
+	char	*usage;
+	char	*pub;
 };
 
 struct Logbuf
@@ -219,6 +229,29 @@ extern int		xiodial(char*, char*, char*, int*);
 extern int		xiowrite(int, void*, int);
 extern int		xioasrdresp(int, void*, int);
 extern int		xioasgetticket(int, Ticketreq*, char*, int);
+
+extern char*	tpmb64(uchar*, int);
+extern int		tpmunb64(char*, uchar**, int*);
+extern char*	tpmbackendname(void);
+extern int		tpmprobe(char*, int);
+extern int		tpmrandom(uchar*, int);
+extern int		tpmgenkey(TpmKeyInfo*, uchar**, int*);
+extern int		tpmkeypublic(TpmKeyInfo*, uchar**, int*);
+extern int		tpmkeysign(TpmKeyInfo*, uchar*, int, uchar**, int*);
+extern int		tpmdestroykey(TpmKeyInfo*);
+extern int		tpmsealblob(char*, uchar*, int, char**);
+extern int		tpmunsealblob(char*, uchar**, int*);
+extern int		tpmquote(char*, uchar*, int, char**);
+extern int		tpmctl(char*);
+extern int		tpmgenkeyctl(char*);
+extern int		tpmkeyalgok(char*);
+extern int		tpmkeycanuse(TpmKeyInfo*, char*);
+extern int		tpmkeyinfoattrs(Attr*, TpmKeyInfo*);
+extern int		vaultinit(char*);
+extern int		vaultlock(void);
+extern int		vaultunlock(void);
+extern int		vaultislocked(void);
+extern int		vaultrequire(char*);
 
 /* pkcs1.c - maybe should be in libsec */
 typedef DigestState *DigestAlg(uchar*, ulong, uchar*, DigestState*);

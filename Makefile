@@ -6,6 +6,76 @@ ARFLAGS = rsc
 CFLAGS = -Wall -O2 -g -Iinclude -Isrc/lib9 -Isrc/libthread -DPLAN9PORT -std=gnu11 -fno-common
 LDFLAGS = -lpthread
 
+empty :=
+space := $(empty) $(empty)
+
+TPM2_TSS_PREFIX ?= $(HOME)/.local/tpm2-tss
+TPM2_PKG_CONFIG ?= pkg-config
+TPM2_PKG_CONFIG_ARCH ?= $(shell $(CC) -dumpmachine 2>/dev/null)
+TPM2_PKGS = tss2-esys tss2-tctildr tss2-mu tss2-rc
+
+TPM2_LOCAL_SYSROOT_PKG_CONFIG_DIRS = \
+	$(TPM2_TSS_PREFIX)/usr/lib/$(TPM2_PKG_CONFIG_ARCH)/pkgconfig \
+	$(TPM2_TSS_PREFIX)/usr/lib/x86_64-linux-gnu/pkgconfig \
+	$(TPM2_TSS_PREFIX)/usr/lib64/pkgconfig \
+	$(TPM2_TSS_PREFIX)/usr/lib/pkgconfig
+TPM2_LOCAL_PREFIX_PKG_CONFIG_DIRS = \
+	$(TPM2_TSS_PREFIX)/lib/$(TPM2_PKG_CONFIG_ARCH)/pkgconfig \
+	$(TPM2_TSS_PREFIX)/lib/x86_64-linux-gnu/pkgconfig \
+	$(TPM2_TSS_PREFIX)/lib64/pkgconfig \
+	$(TPM2_TSS_PREFIX)/lib/pkgconfig
+TPM2_SYSTEM_PKG_CONFIG_DIRS = \
+	/usr/local/lib/$(TPM2_PKG_CONFIG_ARCH)/pkgconfig \
+	/usr/local/lib/x86_64-linux-gnu/pkgconfig \
+	/usr/local/lib64/pkgconfig \
+	/usr/local/lib/pkgconfig \
+	/usr/lib/$(TPM2_PKG_CONFIG_ARCH)/pkgconfig \
+	/usr/lib/x86_64-linux-gnu/pkgconfig \
+	/usr/lib64/pkgconfig \
+	/usr/lib/pkgconfig
+TPM2_LOCAL_SYSROOT_PKG_CONFIG_FILES := $(wildcard $(addsuffix /tss2-esys.pc,$(TPM2_LOCAL_SYSROOT_PKG_CONFIG_DIRS)))
+TPM2_LOCAL_PREFIX_PKG_CONFIG_FILES := $(wildcard $(addsuffix /tss2-esys.pc,$(TPM2_LOCAL_PREFIX_PKG_CONFIG_DIRS)))
+TPM2_SYSTEM_PKG_CONFIG_FILES := $(wildcard $(addsuffix /tss2-esys.pc,$(TPM2_SYSTEM_PKG_CONFIG_DIRS)))
+TPM2_LOCAL_SYSROOT_PKG_CONFIG_PATH := $(subst $(space),:,$(strip $(patsubst %/tss2-esys.pc,%,$(TPM2_LOCAL_SYSROOT_PKG_CONFIG_FILES))))
+TPM2_LOCAL_PREFIX_PKG_CONFIG_PATH := $(subst $(space),:,$(strip $(patsubst %/tss2-esys.pc,%,$(TPM2_LOCAL_PREFIX_PKG_CONFIG_FILES))))
+TPM2_SYSTEM_PKG_CONFIG_PATH := $(subst $(space),:,$(strip $(patsubst %/tss2-esys.pc,%,$(TPM2_SYSTEM_PKG_CONFIG_FILES))))
+
+ifneq ($(PKG_CONFIG_PATH),)
+ifneq ($(TPM2_SYSTEM_PKG_CONFIG_PATH),)
+TPM2_SYSTEM_EFFECTIVE_PKG_CONFIG_PATH := $(PKG_CONFIG_PATH):$(TPM2_SYSTEM_PKG_CONFIG_PATH)
+else
+TPM2_SYSTEM_EFFECTIVE_PKG_CONFIG_PATH := $(PKG_CONFIG_PATH)
+endif
+else
+TPM2_SYSTEM_EFFECTIVE_PKG_CONFIG_PATH := $(TPM2_SYSTEM_PKG_CONFIG_PATH)
+endif
+
+TPM2_LOCAL_SYSROOT_OK := $(shell if [ -n "$(TPM2_LOCAL_SYSROOT_PKG_CONFIG_PATH)" ] && PKG_CONFIG_PATH="$(TPM2_LOCAL_SYSROOT_PKG_CONFIG_PATH)" PKG_CONFIG_SYSROOT_DIR="$(TPM2_TSS_PREFIX)" $(TPM2_PKG_CONFIG) --exists $(TPM2_PKGS) 2>/dev/null; then echo yes; fi)
+TPM2_LOCAL_PREFIX_OK := $(shell if [ -n "$(TPM2_LOCAL_PREFIX_PKG_CONFIG_PATH)" ] && PKG_CONFIG_PATH="$(TPM2_LOCAL_PREFIX_PKG_CONFIG_PATH)" $(TPM2_PKG_CONFIG) --exists $(TPM2_PKGS) 2>/dev/null; then echo yes; fi)
+TPM2_SYSTEM_OK := $(shell PKG_CONFIG_PATH="$(TPM2_SYSTEM_EFFECTIVE_PKG_CONFIG_PATH)" $(TPM2_PKG_CONFIG) --exists $(TPM2_PKGS) 2>/dev/null && echo yes)
+
+TPM2_PKG_ENV =
+ifeq ($(TPM2_LOCAL_SYSROOT_OK),yes)
+TPM2_PKG_ENV = PKG_CONFIG_PATH="$(TPM2_LOCAL_SYSROOT_PKG_CONFIG_PATH)" PKG_CONFIG_SYSROOT_DIR="$(TPM2_TSS_PREFIX)"
+endif
+ifeq ($(TPM2_PKG_ENV),)
+ifeq ($(TPM2_LOCAL_PREFIX_OK),yes)
+TPM2_PKG_ENV = PKG_CONFIG_PATH="$(TPM2_LOCAL_PREFIX_PKG_CONFIG_PATH)"
+endif
+endif
+ifeq ($(TPM2_PKG_ENV),)
+ifeq ($(TPM2_SYSTEM_OK),yes)
+TPM2_PKG_ENV = PKG_CONFIG_PATH="$(TPM2_SYSTEM_EFFECTIVE_PKG_CONFIG_PATH)"
+endif
+endif
+
+TPM2_CFLAGS := $(shell $(TPM2_PKG_ENV) $(TPM2_PKG_CONFIG) --cflags $(TPM2_PKGS) 2>/dev/null)
+TPM2_LIBS := $(shell $(TPM2_PKG_ENV) $(TPM2_PKG_CONFIG) --libs $(TPM2_PKGS) 2>/dev/null)
+ifneq ($(strip $(TPM2_CFLAGS)$(TPM2_LIBS)),)
+	CFLAGS += -DHAVE_TSS2 $(TPM2_CFLAGS)
+	LDFLAGS += $(TPM2_LIBS)
+endif
+
 # OS-specific flags
 ifeq ($(shell uname), Linux)
 	CFLAGS += -D_GNU_SOURCE
@@ -20,6 +90,7 @@ LIB_GROUP = -Wl,--start-group $(LIBS) -Wl,--end-group
 
 # Commands
 CMDS = factotum passwd netkey
+TEST_BINS = monocypher-test monocypher-prop monokey-test factotum-smoke-test
 
 all: $(LIBS) $(CMDS)
 
@@ -179,8 +250,9 @@ libmux.a: $(LIBMUX_OBJS)
 # Commands
 FACTOTUM_DIR = src/cmd/auth/factotum
 FACTOTUM_FILES = apop.c chap.c dsa.c httpdigest.c monokey.c monocypherproto.c oauth.c \
-	p9any.c p9cr.c p9sk1.c pass.c rsa.c tpm9p.c wep.c \
-	attr.c confirm.c conv.c ctl.c fs.c key.c log.c main.c plan9.c pkcs1.c proto.c rpc.c secstore.c util.c xio.c
+	p9any.c p9cr.c p9sk1.c pass.c rsa.c tpm.c tpm9p.c tpmkey.c tpmseal.c wep.c \
+	attr.c confirm.c conv.c ctl.c fs.c key.c log.c main.c plan9.c pkcs1.c proto.c rpc.c secstore.c \
+	tpm_backend.c tpm_mock.c tpm_tss.c tpmctl.c util.c vault.c xio.c
 FACTOTUM_OBJS = $(addprefix $(FACTOTUM_DIR)/, $(FACTOTUM_FILES:.c=.o))
 
 factotum: $(FACTOTUM_OBJS) $(LIBS)
@@ -195,8 +267,45 @@ netkey: src/cmd/netkey.o $(LIBS)
 monocypher-test: src/libsec/port/monocyphertest.o libsec.a
 	$(CC) $(CFLAGS) -o $@ src/libsec/port/monocyphertest.o libsec.a
 
-check-mono: monocypher-test
+monocypher-prop: src/libsec/port/monocypherprop.o libsec.a
+	$(CC) $(CFLAGS) -o $@ src/libsec/port/monocypherprop.o libsec.a
+
+monokey-test: src/cmd/auth/factotum/monokeytest.o src/cmd/auth/factotum/monokey.o src/cmd/auth/factotum/attr.o $(LIBS)
+	$(CC) $(CFLAGS) -o $@ src/cmd/auth/factotum/monokeytest.o src/cmd/auth/factotum/monokey.o src/cmd/auth/factotum/attr.o $(LIB_GROUP) $(LDFLAGS)
+
+factotum-smoke-test: src/cmd/auth/factotum/integrationtest.o $(LIBS)
+	$(CC) $(CFLAGS) -o $@ src/cmd/auth/factotum/integrationtest.o $(LIB_GROUP) $(LDFLAGS)
+
+check: check-unit check-property
+
+check-unit: monocypher-test monokey-test
 	./monocypher-test
+	./monokey-test
+
+check-mono: check-unit
+
+check-property: monocypher-prop
+	./monocypher-prop $${MONO_PROP_ITERS:-2000}
+
+check-asan:
+	sh test/asan.sh
+
+check-fuzz:
+	sh test/fuzz-monocypher.sh $${FUZZ_SECONDS:-10}
+
+check-mutant:
+	sh test/mutate-monocypher.sh
+
+check-integration: factotum factotum-smoke-test
+	sh test/integration-factotum.sh
+
+check-native-tpm: factotum factotum-smoke-test
+	sh test/integration-native-tpm.sh
+
+check-crap:
+	sh test/crap-score.sh
+
+methodology: check check-asan check-mutant check-fuzz check-integration check-crap
 
 # Dependencies
 src/libauthsrv/authpak.o: src/libauthsrv/authpak.c \
@@ -208,6 +317,6 @@ src/libauthsrv/authpak.o: src/libauthsrv/authpak.c \
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(LIBS) $(CMDS) monocypher-test $(LIB9_OBJS) $(LIBMP_OBJS) $(LIBSEC_OBJS) src/libsec/port/monocyphertest.o $(LIBAUTH_OBJS) $(LIBAUTHSRV_OBJS) $(LIBNDB_OBJS) $(LIBBIO_OBJS) $(LIB9P_OBJS) $(LIBTHREAD_OBJS) $(LIB9PCLIENT_OBJS) $(LIBIP_OBJS) $(LIBMUX_OBJS) $(FACTOTUM_OBJS) src/cmd/auth/passwd.o src/cmd/netkey.o
+	rm -f $(LIBS) $(CMDS) $(TEST_BINS) $(LIB9_OBJS) $(LIBMP_OBJS) $(LIBSEC_OBJS) src/libsec/port/monocyphertest.o src/libsec/port/monocypherprop.o src/cmd/auth/factotum/monokeytest.o src/cmd/auth/factotum/integrationtest.o $(LIBAUTH_OBJS) $(LIBAUTHSRV_OBJS) $(LIBNDB_OBJS) $(LIBBIO_OBJS) $(LIB9P_OBJS) $(LIBTHREAD_OBJS) $(LIB9PCLIENT_OBJS) $(LIBIP_OBJS) $(LIBMUX_OBJS) $(FACTOTUM_OBJS) src/cmd/auth/passwd.o src/cmd/netkey.o
 
-.PHONY: all clean check-mono
+.PHONY: all clean check check-unit check-mono check-property check-asan check-fuzz check-mutant check-integration check-native-tpm check-crap methodology

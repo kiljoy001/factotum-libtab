@@ -17,7 +17,10 @@ extern Proto	p9sk2;		/* p9sk2.c */
 extern Proto	p9cr;
 extern Proto	pass;			/* pass.c */
 extern Proto	rsa;			/* rsa.c */
+extern Proto	tpm;			/* tpm.c */
 extern Proto	tpm9p;		/* tpm9p.c */
+extern Proto	tpmkey;		/* tpmkey.c */
+extern Proto	tpmseal;		/* tpmseal.c */
 extern Proto	vnc;			/* p9cr.c */
 
 Proto *prototab[] = {
@@ -37,7 +40,10 @@ Proto *prototab[] = {
 	&p9sk2,
 	&pass,
 	&rsa,
+	&tpm,
 	&tpm9p,
+	&tpmkey,
+	&tpmseal,
 	&vnc,
 	nil
 };

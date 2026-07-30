@@ -6,6 +6,10 @@ set -e
 echo "=== factotum-dp9ik Test Suite ==="
 echo
 
+echo "Test 0: Running fast unit/property checks..."
+make check
+echo
+
 # Test 1: Check binaries exist
 echo "Test 1: Checking binaries..."
 for bin in factotum passwd netkey; do
@@ -28,80 +32,14 @@ else
 fi
 echo
 
-# Test 3: Test protocol support
-echo "Test 3: Testing protocol support..."
-mkdir -p /tmp/factotum-test-$$
-./factotum -m /tmp/factotum-test-$$ &
-FACTOTUM_PID=$!
-sleep 1
-
-if [ -d "/tmp/factotum-test-$$" ]; then
-    # Check for dp9ik protocol
-    if cat /tmp/factotum-test-$$/proto 2>/dev/null | grep -q "dp9ik"; then
-        echo "  ✓ dp9ik protocol available"
-    else
-        echo "  ✗ dp9ik protocol not found"
-        kill $FACTOTUM_PID 2>/dev/null
-        rm -rf /tmp/factotum-test-$$
-        exit 1
-    fi
-
-    # Check for p9any protocol
-    if cat /tmp/factotum-test-$$/proto 2>/dev/null | grep -q "p9any"; then
-        echo "  ✓ p9any protocol available"
-    else
-        echo "  ✗ p9any protocol not found"
-        kill $FACTOTUM_PID 2>/dev/null
-        rm -rf /tmp/factotum-test-$$
-        exit 1
-    fi
-
-    # Check for p9sk1 protocol
-    if cat /tmp/factotum-test-$$/proto 2>/dev/null | grep -q "p9sk1"; then
-        echo "  ✓ p9sk1 protocol available"
-    else
-        echo "  ✗ p9sk1 protocol not found"
-        kill $FACTOTUM_PID 2>/dev/null
-        rm -rf /tmp/factotum-test-$$
-        exit 1
-    fi
-else
-    echo "  ✗ factotum failed to mount"
-    kill $FACTOTUM_PID 2>/dev/null
-    exit 1
-fi
+# Test 3: Test protocol support and key/RPC operations over direct 9P
+echo "Test 3: Running direct factotum integration smoke..."
+make check-integration
+echo "  ✓ Protocols, key loading, and new RPC roles work"
 echo
 
-# Test 4: Test key operations
-echo "Test 4: Testing key operations..."
-# Check if we can read the ctl file
-if cat /tmp/factotum-test-$$/ctl > /dev/null 2>&1; then
-    echo "  ✓ Can read ctl file"
-
-    # Try to add a key (may not work without proper 9P support)
-    if echo "key proto=pass service=test user=testuser !password=testpass" 2>/dev/null | cat > /tmp/factotum-test-$$/ctl 2>&1; then
-        echo "  ✓ Key operations supported"
-    else
-        echo "  ⚠ Key operations require 9P support (this is OK)"
-    fi
-else
-    echo "  ✗ Cannot read ctl file"
-    kill $FACTOTUM_PID 2>/dev/null
-    rm -rf /tmp/factotum-test-$$
-    exit 1
-fi
-echo
-
-# Cleanup
-echo "Cleaning up..."
-kill $FACTOTUM_PID 2>/dev/null
-sleep 1
-rm -rf /tmp/factotum-test-$$
-echo "  ✓ Cleanup complete"
-echo
-
-# Test 5: Build dp9iktest
-echo "Test 5: Building dp9iktest..."
+# Test 4: Build dp9iktest
+echo "Test 4: Building dp9iktest..."
 cd src/libauthsrv
 if make dp9iktest 2>&1 | grep -q "Error:"; then
     echo "  ✗ dp9iktest build failed"
@@ -112,7 +50,7 @@ fi
 
 # Run dp9iktest if it was built
 if [ -x "./dp9iktest" ]; then
-    echo "Test 6: Running dp9iktest..."
+    echo "Test 5: Running dp9iktest..."
     if ./dp9iktest 2>&1 | grep -q "PASS"; then
         echo "  ✓ dp9iktest passed"
     else
@@ -127,9 +65,9 @@ echo "=== All Tests Passed ==="
 echo
 echo "Summary:"
 echo "  ✓ Binaries built correctly"
-echo "  ✓ factotum runs and mounts"
-echo "  ✓ dp9ik protocol is available"
-echo "  ✓ Key operations work"
+echo "  ✓ factotum direct 9P integration works"
+echo "  ✓ dp9ik, monocypher, tpm9p, oauth, and oauth2 protocols are available"
+echo "  ✓ Key and RPC operations work"
 echo "  ✓ Unit tests compile"
 echo
 echo "Your factotum-dp9ik build is working!"

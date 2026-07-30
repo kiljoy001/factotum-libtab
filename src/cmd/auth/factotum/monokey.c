@@ -269,6 +269,8 @@ monosign(Key *k, uchar *msg, int n, uchar sig[MonoSigLen])
 {
 	MonoKey *mk;
 
+	if(vaultrequire("monocypher sign") < 0)
+		return -1;
 	mk = k->priv;
 	if(mk == nil || !mk->havesk){
 		werrstr("missing private key -- cannot sign");

@@ -13,6 +13,8 @@ This package provides:
 - **Monocypher-backed signing**: Native libtab EdDSA+BLAKE2b signing support
 - **tpm9p proofs**: Factotum protocol for tpm9p/libtab user authorization proofs
 - **OAuth/OAuth2 token storage**: Factotum-managed bearer token retrieval
+- **TPM interface protocols**: Factotum RPC roles for TPM capabilities, random
+  bytes, handle-backed signing keys, seal/unseal blobs, and quotes
 
 All Plan 9 dependencies (lib9, libauth, libsec, etc.) are included and built statically.
 
@@ -74,6 +76,9 @@ factotum -d
 
 # Mount at specific location
 factotum -m /mnt/factotum
+
+# Use the deterministic TPM mock backend for tests/development
+FACTOTUM_TPM_BACKEND=mock factotum
 ```
 
 ### Adding keys
@@ -99,6 +104,10 @@ echo "key proto=tpm9p authdom=rentonsoftworks.coin user=alice !seed=000102030405
 
 # Store an OAuth2 access token in factotum.
 echo "key proto=oauth2 service=keycloak issuer=https://sso.example.com user=alice !access_token=ey..." > /mnt/factotum/ctl
+
+# Initialize the runtime TPM vault boundary, then create a persistent-handle key.
+echo "tpm initvault handle=0x81010000" > /mnt/factotum/ctl
+echo "genkey proto=tpmkey name=alice-tpm handle=0x81010010 alg=tpm2-ecdsa-p256-sha256 usage=sign" > /mnt/factotum/ctl
 ```
 
 ### Querying keys
@@ -122,6 +131,12 @@ factotum -g "proto=dp9ik dom=example.com user=glenda !password?"
 - **oauth/oauth2**: Stores access tokens in factotum private attributes and
   returns raw or `Bearer ...` tokens for clients that need an identity-layer
   bridge.
+- **tpm**: TPM capability, random byte, and quote RPC roles.
+- **tpmkey**: Persistent-handle TPM signing keys. `genkey proto=tpmkey ...`
+  creates factotum key metadata and asks the configured backend to create the
+  device key.
+- **tpmseal**: TPM seal/unseal blob RPC roles for callers that want factotum as
+  the TPM-facing interface.
 - **p9any**: Meta-protocol that negotiates dp9ik or p9sk1 automatically
 - **dp9ik**: Modern 9front authentication protocol
 - **p9sk1**: Classic Plan 9 shared-key authentication
@@ -181,11 +196,146 @@ read
 Authorization header value. `role=refresh` returns `!refresh_token` only when
 that private attribute is present.
 
+### TPM RPC and ctl examples
+
+The TPM backend is selected with `FACTOTUM_TPM_BACKEND`. `mock` is deterministic
+and is used by the default test suite. `tpm2` uses native tpm2-tss ESAPI/TCTI
+when the headers and libraries are available at build time; the Makefile looks
+under `TPM2_TSS_PREFIX` first, defaulting to `$HOME/.local/tpm2-tss`, then under
+system pkg-config locations for Debian, Arch, and Red Hat based systems. It
+defines `HAVE_TSS2` automatically when `pkg-config` can resolve the stack. The
+native backend talks directly to the TCTI and does not bridge through
+`tpm2-tools`.
+
+Native TPM build dependencies:
+
+```bash
+# Debian/Ubuntu/Pop!_OS
+sudo apt install build-essential pkg-config libtss2-dev swtpm
+
+# Arch/Manjaro
+sudo pacman -S base-devel pkgconf tpm2-tss swtpm
+
+# Fedora/RHEL/Rocky/Alma
+sudo dnf install gcc make pkgconf-pkg-config tpm2-tss-devel swtpm
+```
+
+Some RHEL-compatible installs may need their normal CRB/EPEL-equivalent package
+repository enabled before `swtpm` is available.
+
+The build searches these pkg-config layouts:
+
+```text
+Debian family: /usr/lib/<gcc -dumpmachine>/pkgconfig
+Debian x86_64 fallback: /usr/lib/x86_64-linux-gnu/pkgconfig
+Arch family: /usr/lib/pkgconfig
+Red Hat family: /usr/lib64/pkgconfig
+Local source install: $TPM2_TSS_PREFIX/lib/<gcc -dumpmachine>/pkgconfig
+Local source install: $TPM2_TSS_PREFIX/lib/x86_64-linux-gnu/pkgconfig
+Local source install: $TPM2_TSS_PREFIX/lib64/pkgconfig
+Local source install: $TPM2_TSS_PREFIX/lib/pkgconfig
+Local sysroot/package: $TPM2_TSS_PREFIX/usr/lib/<gcc -dumpmachine>/pkgconfig
+Local sysroot/package: $TPM2_TSS_PREFIX/usr/lib/x86_64-linux-gnu/pkgconfig
+Local sysroot/package: $TPM2_TSS_PREFIX/usr/lib64/pkgconfig
+Local sysroot/package: $TPM2_TSS_PREFIX/usr/lib/pkgconfig
+```
+
+`/usr/local` equivalents are searched before `/usr` for local system installs.
+If tpm2-tss is installed outside those locations, point `TPM2_TSS_PREFIX` at the
+install root or provide `PKG_CONFIG_PATH` directly:
+
+```bash
+TPM2_TSS_PREFIX=/opt/tpm2-tss make factotum
+PKG_CONFIG_PATH=/opt/tpm2-tss/lib/pkgconfig make factotum
+```
+
+The native integration test also prepends the matching local-prefix library
+directories to `LD_LIBRARY_PATH` so a non-system tpm2-tss build can be exercised
+against `swtpm`.
+
+By default the native backend uses `FACTOTUM_TPM_TCTI` or
+`swtpm:host=127.0.0.1,port=2321` when the variable is unset. TPM quotes also
+need `FACTOTUM_TPM_QUOTE_HANDLE` to point at a persistent signing key.
+
+```text
+tpm probe
+tpm initvault handle=0x81010000
+genkey proto=tpmkey name=alice-tpm handle=0x81010010 alg=tpm2-ecdsa-p256-sha256 usage=sign
+lock
+unlock
+delkey proto=tpmkey name=alice-tpm destroy=1
+```
+
+`lock` and `unlock` implement a runtime vault boundary. Once initialized and
+locked, secret-bearing operations such as Monocypher signing, tpm9p proofs,
+OAuth token reads, TPM signing, sealing, unsealing, and quotes fail until
+`unlock` succeeds. Existing private attributes are not yet replaced by an
+encrypted in-memory store.
+
+```text
+start proto=tpm role=caps
+read
+
+start proto=tpm role=random n=32
+readhex
+
+start proto=tpmkey role=public name=alice-tpm
+read
+
+start proto=tpmkey role=sign name=alice-tpm hash=sha256
+writehex <32-byte digest>
+read
+
+start proto=tpmseal role=seal name=vault policy=none
+write <secret bytes>
+read
+
+start proto=tpmseal role=unseal name=vault blob=<blob>
+read
+```
+
+Native `tpmseal` currently supports unbound TPM sealed blobs up to the TPM2
+`TPM2B_SENSITIVE_DATA` limit. Non-empty PCR policies fail closed until the RPC
+protocol records enough policy state to replay the policy during unseal.
+
 ## Testing
 
 The build includes test utilities:
 
 ```bash
+# Fast local unit and property layer.
+make check
+
+# Unit-only layer.
+make check-unit
+
+# Randomized property checks; override iteration count when needed.
+MONO_PROP_ITERS=10000 make check-property
+
+# ASAN/UBSAN build and fast checks in a scratch copy.
+make check-asan
+
+# C fuzzing with libFuzzer; skips cleanly when clang is unavailable.
+FUZZ_SECONDS=30 make check-fuzz
+
+# Mutation smoke test. This mutates a scratch copy so the tree stays clean.
+make check-mutant
+
+# Direct 9P integration smoke test for protocol registration, ctl key loading,
+# TPM mock backend, vault lock/unlock, and monocypher/tpm9p/oauth RPC roles.
+make check-integration
+
+# Native tpm2-tss integration against a throwaway swtpm instance. This is kept
+# out of methodology because it requires swtpm and native tpm2-tss runtime libs.
+make check-native-tpm
+
+# CRAP scoring for first-party protocol glue. This uses gcov coverage from
+# unit/property/integration tests and excludes vendored Monocypher.
+make check-crap
+
+# Full methodology stack.
+make methodology
+
 # Build the dp9ik unit tests
 cd src/libauthsrv
 make dp9iktest
@@ -236,7 +386,8 @@ This standalone distribution includes the dp9ik patches from commit `7f034292`:
 - Imported AuthPAK, Ed448, SPAKE2-EE crypto from 9front
 - Added ChaCha20-Poly1305, SHA-512, HKDF, PBKDF2 to libsec
 - Added Monocypher as a libsec component for libtab/tpm9p signing protocols
-- Added `monocypher`, `tpm9p`, `oauth`, and `oauth2` factotum protocols
+- Added `monocypher`, `tpm9p`, `oauth`, `oauth2`, `tpm`, `tpmkey`, and
+  `tpmseal` factotum protocols
 - Extended libmp with constant-time field operations
 - Updated authsrv structures for form1 authentication
 - Added comprehensive test coverage

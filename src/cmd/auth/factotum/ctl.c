@@ -14,11 +14,45 @@
  *	debug - toggle debugging
  */
 
+enum
+{
+	CmdKey,
+	CmdDelkey,
+	CmdDebug,
+	CmdTpm,
+	CmdGenkey,
+	CmdLock,
+	CmdUnlock
+#ifdef FACTOTUM_TEST_EXIT
+	,
+	CmdExit
+#endif
+};
+
 static char *msg[] = {
 	"key",
 	"delkey",
-	"debug"
+	"debug",
+	"tpm",
+	"genkey",
+	"lock",
+	"unlock"
+#ifdef FACTOTUM_TEST_EXIT
+	,
+	"exit"
+#endif
 };
+
+#ifdef FACTOTUM_TEST_EXIT
+static void
+testexitproc(void *v)
+{
+	USED(v);
+
+	sleep(100);
+	threadexitsall(nil);
+}
+#endif
 
 static int
 classify(char *s)
@@ -34,11 +68,12 @@ classify(char *s)
 int
 ctlwrite(char *a)
 {
-	char *p;
-	int i, nmatch, ret;
+	char *destroy, *keyproto, *p;
+	int destroytpm, i, nmatch, ret;
 	Attr *attr, *kpa, **l, **lpriv, **lprotos, *pa, *priv, *protos;
 	Key *k;
 	Proto *proto;
+	TpmKeyInfo tki;
 
 	while(*a == ' ' || *a == '\t' || *a == '\n')
 		a++;
@@ -68,7 +103,7 @@ ctlwrite(char *a)
 	default:
 		werrstr("unknown verb %s", a);
 		return -1;
-	case 0:	/* key */
+	case CmdKey:	/* key */
 		attr = parseattr(p);
 		/* separate out proto= attributes */
 		lprotos = &protos;
@@ -139,9 +174,17 @@ ctlwrite(char *a)
 		freeattr(priv);
 		freeattr(protos);
 		return ret;
-	case 1:	/* delkey */
+	case CmdDelkey:	/* delkey */
 		nmatch = 0;
+		ret = 0;
+		destroytpm = 0;
 		attr = parseattr(p);
+		destroy = strfindattr(attr, "destroy");
+		if(destroy != nil){
+			if(strcmp(destroy, "1") == 0 || strcmp(destroy, "yes") == 0)
+				destroytpm = 1;
+			attr = delattr(attr, "destroy");
+		}
 		flog("delkey %A", attr);
 		for(pa=attr; pa; pa=pa->next){
 			if(pa->type != AttrQuery && pa->name[0]=='!'){
@@ -152,6 +195,22 @@ ctlwrite(char *a)
 		}
 		for(i=0; i<ring.nkey; ){
 			if(matchattr(attr, ring.key[i]->attr, ring.key[i]->privattr)){
+				if(destroytpm){
+					keyproto = strfindattr(ring.key[i]->attr, "proto");
+					if(keyproto == nil || strcmp(keyproto, "tpmkey") != 0){
+						werrstr("destroy=1 is only valid for proto=tpmkey");
+						ret = -1;
+						i++;
+						continue;
+					}
+					tpmkeyinfoattrs(ring.key[i]->attr, &tki);
+					if(tpmdestroykey(&tki) < 0){
+						flog("destroy TPM key %A: %r", ring.key[i]->attr);
+						ret = -1;
+						i++;
+						continue;
+					}
+				}
 				nmatch++;
 				flog("deleting %A %N", ring.key[i]->attr, ring.key[i]->privattr);
 				keyclose(ring.key[i]);
@@ -162,13 +221,27 @@ ctlwrite(char *a)
 		}
 		freeattr(attr);
 		if(nmatch == 0){
-			werrstr("found no keys to delete");
+			if(ret == 0)
+				werrstr("found no keys to delete");
 			return -1;
 		}
-		return 0;
-	case 2:	/* debug */
+		return ret;
+	case CmdDebug:	/* debug */
 		debug ^= 1;
 		flog("debug = %d", debug);
 		return 0;
+	case CmdTpm:
+		return tpmctl(p);
+	case CmdGenkey:
+		return tpmgenkeyctl(p);
+	case CmdLock:
+		return vaultlock();
+	case CmdUnlock:
+		return vaultunlock();
+#ifdef FACTOTUM_TEST_EXIT
+	case CmdExit:	/* exit */
+		proccreate(testexitproc, nil, 8192);
+		return 0;
+#endif
 	}
 }

@@ -31,6 +31,8 @@ xoauthaccess(Conv *c)
 	Key *k;
 	int ret;
 
+	if(vaultrequire("oauth access token") < 0)
+		return -1;
 	k = keyfetch(c, "%A", c->attr);
 	if(k == nil)
 		return -1;
@@ -53,6 +55,8 @@ xoauthbearer(Conv *c)
 	Key *k;
 	int ret;
 
+	if(vaultrequire("oauth bearer token") < 0)
+		return -1;
 	k = keyfetch(c, "%A", c->attr);
 	if(k == nil)
 		return -1;
@@ -82,6 +86,8 @@ xoauthrefresh(Conv *c)
 	Key *k;
 	int ret;
 
+	if(vaultrequire("oauth refresh token") < 0)
+		return -1;
 	k = keyfetch(c, "%A", c->attr);
 	if(k == nil)
 		return -1;
