@@ -19,9 +19,12 @@ addcap(Attr *a, char *from, Ticket *t)
 }
 
 /*
- * The auth server for authdom: the one -a names, when it is given,
- * as 9front's factotum takes it; else the one ndb names for the
- * domain (authdial).
+ * The auth server for authdom: the one -a names, when it is given;
+ * else the one ndb names for the domain (authdial).  9front's factotum
+ * dials its -a addresses only while it cannot reach cs, at bootstrap,
+ * and otherwise asks ndb; here -a wins whenever it is given, since a
+ * plan9port host seldom has an ndb entry for the realm it is told to
+ * use, as a 9lx machine's.
  */
 int
 _authdial(char *net, char *authdom)
