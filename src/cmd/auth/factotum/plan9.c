@@ -18,9 +18,16 @@ addcap(Attr *a, char *from, Ticket *t)
 	return addattr(a, "cuid=%q suid=%q cap=''", t->cuid, t->suid);
 }
 
+/*
+ * The auth server for authdom: the one -a names, when it is given,
+ * as 9front's factotum takes it; else the one ndb names for the
+ * domain (authdial).
+ */
 int
 _authdial(char *net, char *authdom)
 {
+	if(authaddr != nil)
+		return dial(netmkaddr(authaddr, "tcp", "ticket"), 0, 0, 0);
 	return authdial(net, authdom);
 }
 
