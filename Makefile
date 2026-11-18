@@ -253,6 +253,14 @@ FACTOTUM_FILES = apop.c chap.c dsa.c httpdigest.c monokey.c monocypherproto.c oa
 	p9any.c p9cr.c p9sk1.c pass.c rsa.c tpm.c tpm9p.c tpmkey.c tpmseal.c wep.c \
 	attr.c confirm.c conv.c ctl.c fs.c key.c log.c main.c plan9.c pkcs1.c proto.c rpc.c secstore.c \
 	tpm_backend.c tpm_mock.c tpm_tss.c tpmctl.c util.c vault.c xio.c
+# CSP_INC names the directory holding 9lx's cspctl.h (the /dev/csp
+# interface).  With it, factotum -C n also serves n CSP channel pairs
+# (cspsrv.c); without it the build is unchanged.
+ifneq ($(CSP_INC),)
+FACTOTUM_FILES += cspsrv.c
+CFLAGS += -DHAVE_CSP
+$(FACTOTUM_DIR)/cspsrv.o: CFLAGS += -I$(CSP_INC)
+endif
 FACTOTUM_OBJS = $(addprefix $(FACTOTUM_DIR)/, $(FACTOTUM_FILES:.c=.o))
 
 factotum: $(FACTOTUM_OBJS) $(LIBS)

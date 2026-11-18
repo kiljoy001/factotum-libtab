@@ -435,7 +435,17 @@ fsdestroyfid(Fid *fid)
 }
 
 static Channel *creq;
-static Channel *cfid, *cfidr;
+static Channel *cfid;
+
+/* A clunk handed to fsclunkthread, with the channel its sender waits
+ * on.  Each sender has its own: with more than one srv loop forwarding
+ * here (cspsrv.c), a shared reply channel could wake a loop for another
+ * loop's fid, and lib9p frees the fid as soon as destroyfid returns. */
+typedef struct Clunk Clunk;
+struct Clunk {
+	Fid	*f;
+	Channel	*done;
+};
 
 static void
 fsreqthread(void *v)
@@ -468,13 +478,13 @@ fsreqthread(void *v)
 static void
 fsclunkthread(void *v)
 {
-	Fid *f;
+	Clunk *c;
 
 	USED(v);
 
-	while((f = recvp(cfid)) != nil){
-		fsdestroyfid(f);
-		sendp(cfidr, 0);
+	while((c = recvp(cfid)) != nil){
+		fsdestroyfid(c->f);
+		sendp(c->done, 0);
 	}
 }
 
@@ -505,8 +515,13 @@ fssend(Req *r)
 static void
 fssendclunk(Fid *f)
 {
-	sendp(cfid, f);
-	recvp(cfidr);
+	Clunk c;
+
+	c.f = f;
+	c.done = chancreate(sizeof(void*), 0);
+	sendp(cfid, &c);
+	recvp(c.done);
+	chanfree(c.done);
 }
 
 void
@@ -519,8 +534,7 @@ fsstart(Srv *s)
 	else
 		qtop = Qfactotum;
 	creq = chancreate(sizeof(Req*), 0);
-	cfid = chancreate(sizeof(Fid*), 0);
-	cfidr = chancreate(sizeof(Fid*), 0);
+	cfid = chancreate(sizeof(Clunk*), 0);
 	proccreate(fsproc, nil, STACK);
 }
 

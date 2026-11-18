@@ -126,6 +126,8 @@ extern int		*loginuse;	/* fs.c */
 extern char	Easproto[];	/* err.c */
 
 void fsinit0(void);
+void fsstart(Srv*);
+void cspserve(int);	/* cspsrv.c, built with HAVE_CSP */
 
 /* provided by lib9p */
 #define emalloc	emalloc9p

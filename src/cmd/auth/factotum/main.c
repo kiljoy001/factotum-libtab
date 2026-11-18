@@ -9,6 +9,7 @@ char *factname = "factotum";
 char *service = "factotum";
 char *owner;
 char *authaddr;
+int cspconns;	/* -C n: also serve n CSP channel pairs (cspsrv.c) */
 void gflag(char*);
 
 void
@@ -71,6 +72,11 @@ threadmain(int argc, char *argv[])
 	case 'x':
 		extrafactotumdir = 1;
 		break;
+#ifdef HAVE_CSP
+	case 'C':
+		cspconns = atoi(EARGF(usage()));
+		break;
+#endif
 	}ARGEND
 
 	if(argc != 0)
@@ -89,6 +95,10 @@ threadmain(int argc, char *argv[])
 	rfork(RFNOTEG);
 
 	fsinit0();
+#ifdef HAVE_CSP
+	if(cspconns > 0)
+		cspserve(cspconns);
+#endif
 	threadpostmountsrv(&fs, service, mtpt, MBEFORE);
 	threadexits(nil);
 }
