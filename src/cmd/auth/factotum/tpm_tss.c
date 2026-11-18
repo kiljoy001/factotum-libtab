@@ -280,6 +280,24 @@ emptysensitive(TPM2B_SENSITIVE_CREATE *s)
 	s->sensitive.data.size = 0;
 }
 
+static int
+setauth(TPM2B_AUTH *a, char *auth)
+{
+	size_t n;
+
+	memset(a, 0, sizeof *a);
+	if(auth == nil)
+		auth = "";
+	n = strlen(auth);
+	if(n > sizeof a->buffer){
+		werrstr("TPM auth must be between 0 and %d bytes", (int)sizeof a->buffer);
+		return -1;
+	}
+	a->size = n;
+	memmove(a->buffer, auth, n);
+	return 0;
+}
+
 static void
 primarytemplate(TPM2B_PUBLIC *pub)
 {
@@ -746,7 +764,7 @@ outclose:
 }
 
 static int
-tssseal(char *policy, uchar *in, int nin, char **blob)
+tssseal(char *policy, char *auth, uchar *in, int nin, char **blob)
 {
 	TssCtx tc;
 	ESYS_TR primary;
@@ -788,6 +806,8 @@ tssseal(char *policy, uchar *in, int nin, char **blob)
 	if(createprimary(&tc, &primary) < 0)
 		goto out;
 	emptysensitive(&sensitive);
+	if(setauth(&sensitive.sensitive.userAuth, auth) < 0)
+		goto out;
 	sensitive.sensitive.data.size = nin;
 	memmove(sensitive.sensitive.data.buffer, in, nin);
 	sealtemplate(&inpublic);
@@ -864,11 +884,12 @@ splitsealblob(char *blob, char **copy, char **priv64, char **pub64)
 }
 
 static int
-tssunseal(char *blob, uchar **out, int *nout)
+tssunseal(char *blob, char *auth, uchar **out, int *nout)
 {
 	TssCtx tc;
 	ESYS_TR primary, object;
 	TSS2_RC rc;
+	TPM2B_AUTH objectauth;
 	TPM2B_PRIVATE priv;
 	TPM2B_PUBLIC pub;
 	TPM2B_SENSITIVE_DATA *data;
@@ -901,6 +922,13 @@ tssunseal(char *blob, uchar **out, int *nout)
 	    ESYS_TR_NONE, ESYS_TR_NONE, &priv, &pub, &object);
 	if(rc != TSS2_RC_SUCCESS){
 		tsserr(rc, "load TPM sealed object");
+		goto outclose;
+	}
+	if(setauth(&objectauth, auth) < 0)
+		goto outclose;
+	rc = Esys_TR_SetAuth(tc.esys, object, &objectauth);
+	if(rc != TSS2_RC_SUCCESS){
+		tsserr(rc, "set TPM sealed object auth");
 		goto outclose;
 	}
 	rc = Esys_Unseal(tc.esys, object, ESYS_TR_PASSWORD,
@@ -1071,7 +1099,7 @@ tssinitvault(char *handle, char **blob)
 		handle = "";
 	if(tssrandom(key, sizeof key) < 0)
 		goto out;
-	if(tssseal("", key, sizeof key, &seal) < 0)
+	if(tssseal("", "", key, sizeof key, &seal) < 0)
 		goto out;
 	*blob = smprint("tss2vault-v1:%s:%s", handle, seal);
 	if(*blob == nil){
@@ -1107,7 +1135,7 @@ tssunlockvault(char *blob)
 		goto bad;
 	}
 	p++;
-	ret = tssunseal(p, &key, &nkey);
+	ret = tssunseal(p, "", &key, &nkey);
 	if(key != nil){
 		memset(key, 0, nkey);
 		free(key);
@@ -1187,9 +1215,10 @@ tssdestroy(TpmKeyInfo *k)
 }
 
 static int
-tssseal(char *policy, uchar *in, int nin, char **blob)
+tssseal(char *policy, char *auth, uchar *in, int nin, char **blob)
 {
 	USED(policy);
+	USED(auth);
 	USED(in);
 	USED(nin);
 	USED(blob);
@@ -1198,9 +1227,10 @@ tssseal(char *policy, uchar *in, int nin, char **blob)
 }
 
 static int
-tssunseal(char *blob, uchar **out, int *nout)
+tssunseal(char *blob, char *auth, uchar **out, int *nout)
 {
 	USED(blob);
+	USED(auth);
 	USED(out);
 	USED(nout);
 

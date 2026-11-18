@@ -2,6 +2,7 @@
 #include "dat.h"
 #include "monokey.h"
 #include <monocypher.h>
+#include <monocypher-ed25519.h>
 
 static const char b64e[64] =
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -173,29 +174,32 @@ monob64(uchar *in, int n)
 }
 
 static void
-derive(uchar sk[MonoKeyLen], uchar pk[MonoPubLen], uchar seed[MonoSeedLen])
+derive(uchar sk[MonoKeyLen], uchar pk[MonoPubLen], uchar seed[MonoSeedLen], int ed25519)
 {
 	uchar s[MonoSeedLen];
 
 	memmove(s, seed, sizeof s);
-	crypto_eddsa_key_pair(sk, pk, s);
-	memset(s, 0, sizeof s);
+	if(ed25519)
+		crypto_ed25519_key_pair(sk, pk, s);
+	else
+		crypto_eddsa_key_pair(sk, pk, s);
+	crypto_wipe(s, sizeof s);
 }
 
-int
-monocheckkey(Key *k)
+static int
+checkkey(Key *k, int ed25519)
 {
 	char *alg, *p;
 	uchar seed[MonoSeedLen], pub[MonoPubLen], checksk[MonoKeyLen], checkpk[MonoPubLen];
 	MonoKey *mk;
 
 	alg = strfindattr(k->attr, "alg");
-	if(!monoalg(alg)){
-		werrstr("unsupported monocypher alg %s", alg);
+	if(ed25519 ? (alg != nil && strcmp(alg, "ed25519") != 0) : !monoalg(alg)){
+		werrstr("unsupported signing alg %s", alg);
 		return -1;
 	}
 	if(alg == nil)
-		k->attr = addattr(k->attr, "alg=%q", MonoAlg);
+		k->attr = addattr(k->attr, "alg=%q", ed25519 ? "ed25519" : MonoAlg);
 
 	mk = mallocz(sizeof *mk, 1);
 	if(mk == nil){
@@ -203,26 +207,27 @@ monocheckkey(Key *k)
 		return -1;
 	}
 
+	mk->ed25519 = ed25519;
 	if((p = findpriv(k, "!seed", nil, nil)) != nil){
 		if(decodebytes(p, seed, sizeof seed, "!seed") < 0)
 			goto Error;
-		derive(mk->sk, mk->pk, seed);
-		memset(seed, 0, sizeof seed);
+		derive(mk->sk, mk->pk, seed, ed25519);
+		crypto_wipe(seed, sizeof seed);
 		mk->havesk = 1;
 	}else if((p = findpriv(k, "!sk", "!secret", "!private")) != nil){
 		if(decodebytes(p, mk->sk, sizeof mk->sk, "!sk") < 0)
 			goto Error;
 		memmove(mk->pk, mk->sk + MonoSeedLen, sizeof mk->pk);
 		memmove(seed, mk->sk, sizeof seed);
-		derive(checksk, checkpk, seed);
-		memset(seed, 0, sizeof seed);
-		memset(checksk, 0, sizeof checksk);
+		derive(checksk, checkpk, seed, ed25519);
+		crypto_wipe(seed, sizeof seed);
+		crypto_wipe(checksk, sizeof checksk);
 		if(tsmemcmp(checkpk, mk->pk, sizeof mk->pk) != 0){
 			werrstr("!sk public half does not match seed half");
-			memset(checkpk, 0, sizeof checkpk);
+			crypto_wipe(checkpk, sizeof checkpk);
 			goto Error;
 		}
-		memset(checkpk, 0, sizeof checkpk);
+		crypto_wipe(checkpk, sizeof checkpk);
 		mk->havesk = 1;
 	}
 
@@ -247,18 +252,30 @@ monocheckkey(Key *k)
 	return 0;
 
 Error:
-	memset(seed, 0, sizeof seed);
-	memset(pub, 0, sizeof pub);
-	memset(mk, 0, sizeof *mk);
+	crypto_wipe(seed, sizeof seed);
+	crypto_wipe(pub, sizeof pub);
+	crypto_wipe(mk, sizeof *mk);
 	free(mk);
 	return -1;
+}
+
+int
+monocheckkey(Key *k)
+{
+	return checkkey(k, 0);
+}
+
+int
+ed25519checkkey(Key *k)
+{
+	return checkkey(k, 1);
 }
 
 void
 monoclosekey(Key *k)
 {
 	if(k->priv != nil){
-		memset(k->priv, 0, sizeof(MonoKey));
+		crypto_wipe(k->priv, sizeof(MonoKey));
 		free(k->priv);
 		k->priv = nil;
 	}
@@ -276,7 +293,14 @@ monosign(Key *k, uchar *msg, int n, uchar sig[MonoSigLen])
 		werrstr("missing private key -- cannot sign");
 		return -1;
 	}
-	crypto_eddsa_sign(sig, mk->sk, msg, n);
+	if(n < 0){
+		werrstr("invalid message length");
+		return -1;
+	}
+	if(mk->ed25519)
+		crypto_ed25519_sign(sig, mk->sk, msg, n);
+	else
+		crypto_eddsa_sign(sig, mk->sk, msg, n);
 	return 0;
 }
 
@@ -290,6 +314,10 @@ monoverify(Key *k, uchar *msg, int n, uchar sig[MonoSigLen])
 		werrstr("missing public key");
 		return -1;
 	}
+	if(n < 0)
+		return -1;
+	if(mk->ed25519)
+		return crypto_ed25519_check(sig, mk->pk, msg, n);
 	return crypto_eddsa_check(sig, mk->pk, msg, n);
 }
 

@@ -15,10 +15,12 @@ struct MonoKey
 	uchar	sk[MonoKeyLen];
 	uchar	pk[MonoPubLen];
 	int	havesk;
+	int	ed25519;
 };
 
 int	monoalg(char*);
 int	monocheckkey(Key*);
+int	ed25519checkkey(Key*);
 void	monoclosekey(Key*);
 int	monosign(Key*, uchar*, int, uchar[MonoSigLen]);
 int	monoverify(Key*, uchar*, int, uchar[MonoSigLen]);

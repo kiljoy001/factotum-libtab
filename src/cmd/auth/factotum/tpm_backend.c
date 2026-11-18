@@ -222,25 +222,25 @@ tpmdestroykey(TpmKeyInfo *k)
 }
 
 int
-tpmsealblob(char *policy, uchar *in, int nin, char **blob)
+tpmsealblob(char *policy, char *auth, uchar *in, int nin, char **blob)
 {
 	TpmBackend *b;
 
 	b = tpmbackend();
 	if(b == nil)
 		return -1;
-	return (*b->seal)(policy, in, nin, blob);
+	return (*b->seal)(policy, auth, in, nin, blob);
 }
 
 int
-tpmunsealblob(char *blob, uchar **out, int *nout)
+tpmunsealblob(char *blob, char *auth, uchar **out, int *nout)
 {
 	TpmBackend *b;
 
 	b = tpmbackend();
 	if(b == nil)
 		return -1;
-	return (*b->unseal)(blob, out, nout);
+	return (*b->unseal)(blob, auth, out, nout);
 }
 
 int

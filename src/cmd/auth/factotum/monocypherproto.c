@@ -135,3 +135,21 @@ Proto monocypher =
 	monocheckkey,
 	monoclosekey
 };
+
+/* Standard Ed25519 is separate from the libtab BLAKE2b protocol. */
+static Role ed25519roles[] =
+{
+	{"sign", xmonosign},
+	{"verify", xmonoverify},
+	{"public", xmonopub},
+	{0, 0}
+};
+
+Proto ed25519 =
+{
+	"ed25519",
+	ed25519roles,
+	nil,
+	ed25519checkkey,
+	monoclosekey
+};

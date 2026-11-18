@@ -4,6 +4,11 @@
 /netkey
 
 # Test executables
+/factotum-smoke-test
+/monocypher-prop
+/monocypher-test
+/monokey-test
+/ed25519-test
 src/libauthsrv/dp9iktest
 src/cmd/auth/factotum/livetest
 
@@ -44,3 +49,11 @@ TAGS
 # Test output
 test_*.out
 *.test
+TestResults/
+artifacts/
+StrykerOutput/
+tests/**/bin/
+tests/**/obj/
+tests/**/coverage.json
+tests/Factotum.Fuzz/findings/
+tests/Factotum.Fuzz/testcases/

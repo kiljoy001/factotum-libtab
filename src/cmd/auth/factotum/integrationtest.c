@@ -315,8 +315,8 @@ exercise_tpm(CFsys *fs)
 		return -1;
 	}
 	if(rpcstart(rpc, is_native ?
-	    "proto=tpmseal role=seal name=vault policy=none" :
-	    "proto=tpmseal role=seal name=vault policy=pcr:sha256:0,2,7") < 0)
+	    "proto=tpmseal role=seal name=vault policy=none !auth=login-secret" :
+	    "proto=tpmseal role=seal name=vault policy=pcr:sha256:0,2,7 !auth=login-secret") < 0)
 		goto out;
 	if(rpcdo(rpc, "write", secret, strlen(secret), reply, sizeof reply) < 0)
 		goto out;
@@ -335,7 +335,21 @@ exercise_tpm(CFsys *fs)
 		fprint(2, "open rpc: %r\n");
 		return -1;
 	}
-	snprint(reply, sizeof reply, "proto=tpmseal role=unseal name=vault blob=%s", blob);
+	snprint(reply, sizeof reply, "proto=tpmseal role=unseal name=vault blob=%s !auth=wrong-secret", blob);
+	if(rpcstart(rpc, reply) < 0)
+		goto out;
+	if(rpcdo(rpc, "read", nil, 0, reply, sizeof reply) < 0)
+		goto out;
+	if(expecterror(reply, "tpm unseal with wrong auth") < 0)
+		goto out;
+	fsclose(rpc);
+	rpc = nil;
+
+	if((rpc = fsopen(fs, "rpc", ORDWR)) == nil){
+		fprint(2, "open rpc: %r\n");
+		return -1;
+	}
+	snprint(reply, sizeof reply, "proto=tpmseal role=unseal name=vault blob=%s !auth=login-secret", blob);
 	if(rpcstart(rpc, reply) < 0)
 		goto out;
 	if(rpcdo(rpc, "read", nil, 0, reply, sizeof reply) < 0)
@@ -505,6 +519,99 @@ out:
 }
 
 static int
+exercise_ed25519(CFsys *fs)
+{
+	CFid *rpc;
+	char reply[512], sighex[2*64+1];
+	int ret;
+
+	ret = -1;
+	if((rpc = fsopen(fs, "rpc", ORDWR)) == nil){
+		fprint(2, "open rpc: %r\n");
+		return -1;
+	}
+	if(rpcstart(rpc, "proto=ed25519 role=sign user=alice") < 0)
+		goto out;
+	if(rpcdo(rpc, "write", "r", 1, reply, sizeof reply) < 0)
+		goto out;
+	if(expectok(reply, "ed25519 write message") < 0)
+		goto out;
+	if(rpcdo(rpc, "readhex", nil, 0, reply, sizeof reply) < 0)
+		goto out;
+	if(expectprefix(reply, "ok ", "ed25519 signature") < 0)
+		goto out;
+	if((int)strlen(reply) != 3 + 2*64){
+		fprint(2, "ed25519 signature length: got %d want %d\n",
+		    (int)strlen(reply), 3 + 2*64);
+		goto out;
+	}
+	if(cistrcmp(reply+3,
+	    "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da"
+	    "085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00") != 0){
+		fprint(2, "Ed25519 RPC RFC signature mismatch\n");
+		goto out;
+	}
+	strecpy(sighex, sighex+sizeof sighex, reply+3);
+	fsclose(rpc);
+
+	if((rpc = fsopen(fs, "rpc", ORDWR)) == nil){
+		fprint(2, "open rpc: %r\n");
+		return -1;
+	}
+	if(rpcstart(rpc, "proto=ed25519 role=public user=alice") < 0)
+		goto out;
+	if(rpcdo(rpc, "readhex", nil, 0, reply, sizeof reply) < 0)
+		goto out;
+	if(expectprefix(reply, "ok ", "ed25519 public key") < 0)
+		goto out;
+	if((int)strlen(reply) != 3 + 2*32){
+		fprint(2, "ed25519 public key length: got %d want %d\n",
+		    (int)strlen(reply), 3 + 2*32);
+		goto out;
+	}
+	fsclose(rpc);
+
+	if((rpc = fsopen(fs, "rpc", ORDWR)) == nil){
+		fprint(2, "open rpc: %r\n");
+		return -1;
+	}
+	if(rpcstart(rpc, "proto=ed25519 role=verify user=alice") < 0)
+		goto out;
+	if(rpcdo(rpc, "write", "r", 1, reply, sizeof reply) < 0)
+		goto out;
+	if(expectok(reply, "ed25519 verify write message") < 0)
+		goto out;
+	if(rpcdo(rpc, "writehex", sighex, strlen(sighex), reply, sizeof reply) < 0)
+		goto out;
+	if(expectok(reply, "ed25519 verify write signature") < 0)
+		goto out;
+	if(rpcdo(rpc, "read", nil, 0, reply, sizeof reply) < 0)
+		goto out;
+	if(strcmp(reply, "ok ok") != 0){
+		fprint(2, "ed25519 verify: got %q\n", reply);
+		goto out;
+	}
+	fsclose(rpc);
+	if((rpc = fsopen(fs, "rpc", ORDWR)) == nil)
+		return -1;
+	sighex[0] = sighex[0] == '0' ? '1' : '0';
+	if(rpcstart(rpc, "proto=ed25519 role=verify user=alice") < 0
+	|| rpcdo(rpc, "write", "r", 1, reply, sizeof reply) < 0
+	|| expectok(reply, "ed25519 altered message") < 0
+	|| rpcdo(rpc, "writehex", sighex, strlen(sighex), reply, sizeof reply) < 0
+	|| expectok(reply, "ed25519 altered signature") < 0
+	|| rpcdo(rpc, "read", nil, 0, reply, sizeof reply) < 0)
+		goto out;
+	if(strcmp(reply, "ok signature does not verify") != 0)
+		goto out;
+	ret = 0;
+
+out:
+	fsclose(rpc);
+	return ret;
+}
+
+static int
 exercise_tpm9p(CFsys *fs)
 {
 	CFid *rpc;
@@ -650,6 +757,7 @@ threadmain(int argc, char **argv)
 	if(requireproto(protos, "dp9ik") < 0
 	|| requireproto(protos, "p9any") < 0
 	|| requireproto(protos, "monocypher") < 0
+	|| requireproto(protos, "ed25519") < 0
 	|| requireproto(protos, "tpm") < 0
 	|| requireproto(protos, "tpm9p") < 0
 	|| requireproto(protos, "tpmkey") < 0
@@ -658,6 +766,8 @@ threadmain(int argc, char **argv)
 	|| requireproto(protos, "oauth2") < 0)
 		goto out;
 
+	if(writectl(fs, "key proto=ed25519 user=alice !seed=4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb") < 0)
+		goto out;
 	snprint(key, sizeof key, "key proto=monocypher user=alice !seed=%s", seedhex);
 	if(writectl(fs, key) < 0)
 		goto out;
@@ -680,6 +790,8 @@ threadmain(int argc, char **argv)
 	    "genkey proto=tpmkey name=alice-tpm handle=%s alg=tpm2-ecdsa-p256-sha256 usage=sign",
 	    tpmkey);
 	if(writectl(fs, key) < 0)
+		goto out;
+	if(exercise_ed25519(fs) < 0)
 		goto out;
 	if(exercise_monocypher(fs) < 0)
 		goto out;

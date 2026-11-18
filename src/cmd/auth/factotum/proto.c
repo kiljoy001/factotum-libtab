@@ -7,6 +7,7 @@ extern Proto	cram;		/* apop.c */
 extern Proto	dsa;			/* dsa.c */
 extern Proto	httpdigest;	/* httpdigest.c */
 extern Proto	mschap;		/* chap.c */
+extern Proto	ed25519;	/* monocypherproto.c */
 extern Proto	monocypher;	/* monocypherproto.c */
 extern Proto	oauth;		/* oauth.c */
 extern Proto	oauth2;		/* oauth.c */
@@ -31,6 +32,7 @@ Proto *prototab[] = {
 	&httpdigest,
 	&mschap,
 	&monocypher,
+	&ed25519,
 	&oauth,
 	&oauth2,
 	&p9any,

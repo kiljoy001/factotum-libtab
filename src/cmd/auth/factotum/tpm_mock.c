@@ -127,14 +127,77 @@ mockdestroy(TpmKeyInfo *k)
 }
 
 static int
-mockseal(char *policy, uchar *in, int nin, char **blob)
+hashauth(uchar out[SHA2_256dlen], char *auth)
 {
-	char *b64;
+	DigestState *s;
+	uchar sep;
+
+	sep = 0;
+	if(auth == nil)
+		auth = "";
+	s = sha2_256((uchar*)"mock tpm seal auth", strlen("mock tpm seal auth"), nil, nil);
+	if(s == nil){
+		werrstr("out of memory");
+		return -1;
+	}
+	s = sha2_256(&sep, 1, nil, s);
+	sha2_256((uchar*)auth, strlen(auth), out, s);
+	return 0;
+}
+
+static int
+authmatches(char *want64, char *auth)
+{
+	uchar got[SHA2_256dlen], *want;
+	int nwant, ret;
+
+	want = nil;
+	if(tpmunb64(want64, &want, &nwant) < 0)
+		return -1;
+	ret = -1;
+	if(nwant != SHA2_256dlen){
+		werrstr("bad mock TPM auth hash");
+		goto out;
+	}
+	if(hashauth(got, auth) < 0)
+		goto out;
+	if(tsmemcmp(want, got, sizeof got) != 0){
+		werrstr("bad TPM auth");
+		goto out;
+	}
+	ret = 0;
+
+out:
+	memset(got, 0, sizeof got);
+	if(want != nil){
+		memset(want, 0, nwant);
+		free(want);
+	}
+	return ret;
+}
+
+static int
+mockseal(char *policy, char *auth, uchar *in, int nin, char **blob)
+{
+	uchar h[SHA2_256dlen];
+	char *auth64, *b64;
 
 	USED(policy);
 
+	auth64 = nil;
 	b64 = tpmb64(in, nin);
-	*blob = smprint("mock-v1:%s", b64);
+	if(auth == nil || auth[0] == 0)
+		*blob = smprint("mock-v1:%s", b64);
+	else{
+		if(hashauth(h, auth) < 0){
+			free(b64);
+			return -1;
+		}
+		auth64 = tpmb64(h, sizeof h);
+		*blob = smprint("mock-v2:%s:%s", auth64, b64);
+		memset(h, 0, sizeof h);
+	}
+	free(auth64);
 	free(b64);
 	if(*blob == nil){
 		werrstr("out of memory");
@@ -144,16 +207,41 @@ mockseal(char *policy, uchar *in, int nin, char **blob)
 }
 
 static int
-mockunseal(char *blob, uchar **out, int *nout)
+mockunseal(char *blob, char *auth, uchar **out, int *nout)
 {
-	char *p;
+	char *copy, *p, *q;
 
 	p = "mock-v1:";
+	if(blob != nil && strncmp(blob, p, strlen(p)) == 0)
+		return tpmunb64(blob + strlen(p), out, nout);
+	p = "mock-v2:";
 	if(blob == nil || strncmp(blob, p, strlen(p)) != 0){
 		werrstr("bad mock TPM seal blob");
 		return -1;
 	}
-	return tpmunb64(blob + strlen(p), out, nout);
+	copy = estrdup(blob + strlen(p));
+	q = strchr(copy, ':');
+	if(q == nil){
+		free(copy);
+		werrstr("truncated mock TPM seal blob");
+		return -1;
+	}
+	*q++ = 0;
+	if(authmatches(copy, auth) < 0){
+		free(copy);
+		return -1;
+	}
+	if(strchr(q, ':') != nil){
+		free(copy);
+		werrstr("bad mock TPM seal blob");
+		return -1;
+	}
+	if(tpmunb64(q, out, nout) < 0){
+		free(copy);
+		return -1;
+	}
+	free(copy);
+	return 0;
 }
 
 static int

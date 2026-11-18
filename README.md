@@ -122,6 +122,8 @@ factotum -g "proto=dp9ik dom=example.com user=glenda !password?"
 
 ### Protocols supported
 
+- **ed25519**: Standard RFC 8032 Ed25519 signing, verification, and public-key
+  retrieval, compatible with Go/Yggdrasil keys.
 - **monocypher**: Monocypher-backed signing. The first supported algorithm is
   `libtab-eddsa-blake2b-v1`, which is Monocypher `crypto_eddsa_*`
   over Edwards25519 with BLAKE2b. It is intentionally not RFC8032 Ed25519.
@@ -147,6 +149,35 @@ factotum -g "proto=dp9ik dom=example.com user=glenda !password?"
 - **pass**: Plain password authentication
 - **rsa**: RSA public-key authentication
 - **wpapsk**: WPA-PSK authentication
+
+### Ed25519 RPC
+
+Load `proto=ed25519` keys through `ctl` using a 32-byte `!seed`, a 64-byte
+`!sk` (seed followed by public key, as in Go), or a public-only `pub`.
+Values accept hex or padded base64/base64url. Private/public mismatches and
+algorithms other than `alg=ed25519` are rejected. Never use example seeds
+for real identities.
+
+```text
+start proto=ed25519 role=sign user=alice
+write <message bytes>
+read
+```
+
+Signing returns a raw 64-byte signature. `role=public` returns the 32-byte
+public key. For `role=verify`, write the message, write the raw signature,
+then read `ok` or `signature does not verify`. Key confirmation and vault
+locking apply to signing through the existing factotum mechanisms.
+
+The backend is Monocypher 4.0.2's optional Ed25519/SHA-512 module, which
+requires no libc, allocation, or OS services. This generic signing protocol
+does not implement mount authorization, challenge freshness, or export policy;
+those checks belong in the mount handshake. Keep private keys out of browser
+JavaScript and do not expose unrestricted factotum RPC to web pages.
+
+Validation: `make check`, `make check-integration`,
+`make check-ed25519-interop` (requires Go), and
+`make check-ed25519-freestanding` (requires a C compiler, `ld`, and `nm`).
 
 ### Monocypher RPC examples
 
@@ -332,6 +363,20 @@ make check-native-tpm
 # CRAP scoring for first-party protocol glue. This uses gcov coverage from
 # unit/property/integration tests and excludes vendored Monocypher.
 make check-crap
+
+# C# 9P harness build, property tests, fuzz-harness tests, and BDD specs.
+make check-dotnet
+
+# Merged C# coverage and CRAP scoring for the NinePSharp-backed harness.
+make check-dotnet-coverage
+
+# C# mutation testing. The default mutation gate is 90%.
+make check-dotnet-mutant
+
+# Local CI gate. Add --full for ASAN, fuzz smoke, mutation smoke, Stryker,
+# and the SharpFuzz/AFL campaign when AFL is installed.
+tools/ci.sh
+tools/ci.sh --full
 
 # Full methodology stack.
 make methodology

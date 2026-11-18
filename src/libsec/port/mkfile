@@ -39,6 +39,8 @@ ALLOFILES=\
 	md5.$O\
 	md5block.$O\
 	md5pickle.$O\
+	monocypher.$O\
+	monocypher-ed25519.$O\
 	nfastrand.$O\
 	pbkdf2.$O\
 	poly1305.$O\

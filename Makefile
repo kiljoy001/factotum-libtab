@@ -13,6 +13,10 @@ TPM2_TSS_PREFIX ?= $(HOME)/.local/tpm2-tss
 TPM2_PKG_CONFIG ?= pkg-config
 TPM2_PKG_CONFIG_ARCH ?= $(shell $(CC) -dumpmachine 2>/dev/null)
 TPM2_PKGS = tss2-esys tss2-tctildr tss2-mu tss2-rc
+DOTNET_MIN_LINE ?= 85
+DOTNET_MIN_BRANCH ?= 75
+DOTNET_CRAP_LIMIT ?= 30
+MIN_MUTATION ?= 90
 
 TPM2_LOCAL_SYSROOT_PKG_CONFIG_DIRS = \
 	$(TPM2_TSS_PREFIX)/usr/lib/$(TPM2_PKG_CONFIG_ARCH)/pkgconfig \
@@ -90,7 +94,7 @@ LIB_GROUP = -Wl,--start-group $(LIBS) -Wl,--end-group
 
 # Commands
 CMDS = factotum passwd netkey
-TEST_BINS = monocypher-test monocypher-prop monokey-test factotum-smoke-test
+TEST_BINS = monocypher-test monocypher-prop monokey-test ed25519-test factotum-smoke-test
 
 all: $(LIBS) $(CMDS)
 
@@ -153,7 +157,7 @@ LIBSEC_FILES = aes blowfish ccpoly chacha chachablock decodepem des des3CBC \
 	des3ECB desCBC desECB desmodes dsaalloc dsagen dsaprimes dsaprivtopub \
 	dsasign dsaverify egalloc egdecrypt egencrypt eggen egprivtopub egsign \
 	egverify fastrand genprime genrandom gensafeprime genstrongprime hmac hkdf \
-	md4 md5 md5block md5pickle monocypher nfastrand pbkdf2 poly1305 prng probably_prime \
+	md4 md5 md5block md5pickle monocypher monocypher-ed25519 nfastrand pbkdf2 poly1305 prng probably_prime \
 	rc4 readcert rsaalloc rsadecrypt rsaencrypt rsafill rsagen rsaprivtopub \
 	sha1 sha1block sha1pickle sha2_64 sha2block64 smallprimetest thumb tlshand \
 	tsmemcmp x509
@@ -281,14 +285,18 @@ monocypher-prop: src/libsec/port/monocypherprop.o libsec.a
 monokey-test: src/cmd/auth/factotum/monokeytest.o src/cmd/auth/factotum/monokey.o src/cmd/auth/factotum/attr.o $(LIBS)
 	$(CC) $(CFLAGS) -o $@ src/cmd/auth/factotum/monokeytest.o src/cmd/auth/factotum/monokey.o src/cmd/auth/factotum/attr.o $(LIB_GROUP) $(LDFLAGS)
 
+ed25519-test: src/cmd/auth/factotum/ed25519test.o src/cmd/auth/factotum/monokey.o src/cmd/auth/factotum/attr.o $(LIBS)
+	$(CC) $(CFLAGS) -o $@ src/cmd/auth/factotum/ed25519test.o src/cmd/auth/factotum/monokey.o src/cmd/auth/factotum/attr.o $(LIB_GROUP) $(LDFLAGS)
+
 factotum-smoke-test: src/cmd/auth/factotum/integrationtest.o $(LIBS)
 	$(CC) $(CFLAGS) -o $@ src/cmd/auth/factotum/integrationtest.o $(LIB_GROUP) $(LDFLAGS)
 
 check: check-unit check-property
 
-check-unit: monocypher-test monokey-test
+check-unit: monocypher-test monokey-test ed25519-test
 	./monocypher-test
 	./monokey-test
+	./ed25519-test
 
 check-mono: check-unit
 
@@ -313,7 +321,27 @@ check-native-tpm: factotum factotum-smoke-test
 check-crap:
 	sh test/crap-score.sh
 
-methodology: check check-asan check-mutant check-fuzz check-integration check-crap
+check-dotnet:
+	dotnet build tests/Factotum.Testing/Factotum.Testing.csproj -c Release
+	dotnet test tests/Factotum.Tests/Factotum.Tests.csproj -c Release
+	dotnet test tests/Factotum.Specs/Factotum.Specs.csproj -c Release
+
+check-dotnet-coverage:
+	mkdir -p artifacts/coverage
+	dotnet build tests/Factotum.Testing/Factotum.Testing.csproj -c Release
+	dotnet build tests/Factotum.Tests/Factotum.Tests.csproj -c Release
+	dotnet build tests/Factotum.Specs/Factotum.Specs.csproj -c Release
+	dotnet test tests/Factotum.Tests/Factotum.Tests.csproj -c Release --no-build /p:CollectCoverage=true /p:CoverletOutputFormat=json /p:CoverletOutput="$$(pwd)/artifacts/coverage/merged.json" /p:Include="[Factotum.Testing]*"
+	dotnet test tests/Factotum.Specs/Factotum.Specs.csproj -c Release --no-build /p:CollectCoverage=true /p:CoverletOutputFormat=cobertura /p:CoverletOutput="$$(pwd)/artifacts/coverage/dotnet.xml" /p:MergeWith="$$(pwd)/artifacts/coverage/merged.json" /p:Include="[Factotum.Testing]*"
+	python3 tools/test_crap.py
+	python3 tools/test_coverage_report.py
+	python3 tools/coverage_gate.py --min-line $(DOTNET_MIN_LINE) --min-branch $(DOTNET_MIN_BRANCH)
+	python3 tools/crap.py --threshold $(DOTNET_CRAP_LIMIT) --fail-over $(DOTNET_CRAP_LIMIT) --json artifacts/crap-dotnet.json
+
+check-dotnet-mutant:
+	MIN_MUTATION=$(MIN_MUTATION) bash tools/stryker_gate.sh
+
+methodology: check check-asan check-mutant check-fuzz check-integration check-crap check-dotnet-coverage
 
 # Dependencies
 src/libauthsrv/authpak.o: src/libauthsrv/authpak.c \
@@ -325,6 +353,21 @@ src/libauthsrv/authpak.o: src/libauthsrv/authpak.c \
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(LIBS) $(CMDS) $(TEST_BINS) $(LIB9_OBJS) $(LIBMP_OBJS) $(LIBSEC_OBJS) src/libsec/port/monocyphertest.o src/libsec/port/monocypherprop.o src/cmd/auth/factotum/monokeytest.o src/cmd/auth/factotum/integrationtest.o $(LIBAUTH_OBJS) $(LIBAUTHSRV_OBJS) $(LIBNDB_OBJS) $(LIBBIO_OBJS) $(LIB9P_OBJS) $(LIBTHREAD_OBJS) $(LIB9PCLIENT_OBJS) $(LIBIP_OBJS) $(LIBMUX_OBJS) $(FACTOTUM_OBJS) src/cmd/auth/passwd.o src/cmd/netkey.o
+	rm -f $(LIBS) $(CMDS) $(TEST_BINS) $(LIB9_OBJS) $(LIBMP_OBJS) $(LIBSEC_OBJS) src/libsec/port/monocyphertest.o src/libsec/port/monocypherprop.o src/cmd/auth/factotum/monokeytest.o src/cmd/auth/factotum/ed25519test.o src/cmd/auth/factotum/integrationtest.o $(LIBAUTH_OBJS) $(LIBAUTHSRV_OBJS) $(LIBNDB_OBJS) $(LIBBIO_OBJS) $(LIB9P_OBJS) $(LIBTHREAD_OBJS) $(LIB9PCLIENT_OBJS) $(LIBIP_OBJS) $(LIBMUX_OBJS) $(FACTOTUM_OBJS) src/cmd/auth/passwd.o src/cmd/netkey.o
 
-.PHONY: all clean check check-unit check-mono check-property check-asan check-fuzz check-mutant check-integration check-native-tpm check-crap methodology
+.PHONY: all clean check check-unit check-mono check-property check-asan check-fuzz check-mutant check-integration check-native-tpm check-crap check-dotnet check-dotnet-coverage check-dotnet-mutant methodology
+
+# Header changes must rebuild both signing backends and their callers.
+$(FACTOTUM_DIR)/monokey.o: include/monocypher.h include/monocypher-ed25519.h $(FACTOTUM_DIR)/monokey.h
+$(FACTOTUM_DIR)/monocypherproto.o $(FACTOTUM_DIR)/monokeytest.o $(FACTOTUM_DIR)/ed25519test.o: $(FACTOTUM_DIR)/monokey.h
+$(LIBSEC_DIR)/monocypher-ed25519.o: include/monocypher.h include/monocypher-ed25519.h
+
+check-ed25519-interop:
+	go run test/ed25519-interop.go
+
+.PHONY: check-ed25519-interop
+
+check-ed25519-freestanding:
+	sh test/ed25519-freestanding.sh
+
+.PHONY: check-ed25519-freestanding
