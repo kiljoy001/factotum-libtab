@@ -80,7 +80,19 @@ convclose(Conv *c)
 	p->next = c->next;
 
 free:
+	/* What convalloc and the conversation allocated go with it.
+	 * Only the Conv itself was freed, so its sysuser, its two
+	 * channels and its attributes were lost, a few hundred bytes
+	 * for every rpc conversation the factotum ever had: a signer
+	 * that signs for each namespace a 9lx broker makes grew by
+	 * that much per signature, for good.  No one can still reach
+	 * them: the last reference is gone and c is off the list
+	 * confirm.c walks. */
 	c->next = nil;
+	free(c->sysuser);
+	freeattr(c->attr);
+	chanfree(c->rpcwait);
+	chanfree(c->keywait);
 	free(c);
 }
 
